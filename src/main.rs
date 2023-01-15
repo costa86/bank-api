@@ -21,7 +21,9 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/customers")
                     .route("", web::post().to(routes::create_customer))
                     .route("", web::get().to(routes::get_all_customers))
-                    .route("/{id}", web::get().to(routes::get_customer)),
+                    .route("/{id}", web::get().to(routes::get_customer))
+                    .route("/{id}", web::put().to(routes::edit_customer))
+                    .route("/transfer/", web::put().to(routes::transfer_amount)),
             )
             .route("/hey", web::get().to(manual_hello))
     })
