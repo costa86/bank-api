@@ -19,9 +19,14 @@ async fn main() -> std::io::Result<()> {
                     .route("", web::get().to(routes::get_all_customers))
                     .route("/{id}", web::get().to(routes::get_customer))
                     .route("/{id}", web::put().to(routes::edit_customer))
-                    .route("/{id}/deposit", web::put().to(routes::deposit))
-                    .route("/{id}/withdrawal", web::put().to(routes::withdraw))
-                    .route("/transfer/", web::put().to(routes::transfer_amount)),
+                    .route(
+                        "/{id}/transfers",
+                        web::get().to(routes::get_transfers_by_customer),
+                    )
+                    .route("/{id}/payments", web::post().to(routes::create_payment))
+                    .route("/{id}/deposits", web::put().to(routes::deposit))
+                    .route("/{id}/withdrawals", web::put().to(routes::withdraw))
+                    .route("/transfers/", web::put().to(routes::transfer_amount)),
             )
             .service(web::scope("/transfers").route("", web::get().to(routes::get_all_transfers)))
     })

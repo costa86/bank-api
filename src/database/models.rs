@@ -31,6 +31,19 @@ pub struct Claims {
 }
 
 #[derive(Serialize, Deserialize, Validate)]
+pub struct Payment {
+    pub id: Option<u16>,
+    pub created_at: Option<String>,
+    #[serde(rename = "customerId")]
+    pub customer_id: Option<u16>,
+    pub amount: f64,
+    #[serde(rename = "receiverCode")]
+    pub receiver_code: String,
+    pub reference: String,
+    pub note: String,
+}
+
+#[derive(Serialize, Deserialize, Validate)]
 pub struct Transfer {
     pub id: Option<u16>,
     #[serde(rename = "idFrom")]

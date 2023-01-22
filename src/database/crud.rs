@@ -8,12 +8,14 @@ static DATABASE_FILE: &str = "mydb.sqlite";
 enum Table {
     CUSTOMER,
     TRANSFER,
+    PAYMENT,
 }
 impl Table {
     fn as_str(&self) -> &str {
         match self {
             Table::CUSTOMER => "customers",
             Table::TRANSFER => "transfers",
+            Table::PAYMENT => "payments",
         }
     }
 }
@@ -23,12 +25,13 @@ fn get_connection() -> Result<Connection> {
 }
 
 pub fn create_db() -> Result<()> {
-    get_connection().unwrap().execute_batch(
-        "BEGIN;
-            CREATE TABLE IF NOT EXISTS customers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, balance INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS transfers (id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, from_id INTEGER NOT NULL, to_id INTEGER NOT NULL, amount REAL NOT NULL);
-            COMMIT;",
-    )?;
+    let query = format!("BEGIN;
+    CREATE TABLE IF NOT EXISTS {} (id INTEGER PRIMARY KEY, name TEXT NOT NULL, balance INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS {} (id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, from_id INTEGER NOT NULL, to_id INTEGER NOT NULL, amount REAL NOT NULL);
+    CREATE TABLE IF NOT EXISTS {} (id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, customer_id INTEGER NOT NULL, amount REAL NOT NULL, receiver_code TEXT NOT NULL, reference TEXT NOT NULL, note TEXT NULL);
+    COMMIT;",Table::CUSTOMER.as_str(),Table::TRANSFER.as_str(),Table::PAYMENT.as_str());
+
+    get_connection().unwrap().execute_batch(&query)?;
     Ok(())
 }
 
@@ -46,8 +49,12 @@ pub fn create_customer(customer: &models::Customer) -> Result<()> {
         starting_balance = customer.balance.unwrap();
     }
 
+    let query = format!(
+        "INSERT INTO {} (name, balance, created_at) VALUES (?1, ?2, ?3)",
+        Table::CUSTOMER.as_str()
+    );
     get_connection().unwrap().execute(
-        "INSERT INTO customers (name, balance, created_at) VALUES (?1, ?2, ?3)",
+        &query,
         params![customer.name, starting_balance, customer.created_at],
     )?;
     Ok(())
@@ -69,6 +76,40 @@ pub fn get_customer(id: u16) -> Result<Customer> {
     Ok(user)
 }
 
+pub fn get_transfers_by_customer(id: u16) -> Result<Vec<TransferHuman>> {
+    let conn = get_connection().unwrap();
+    let mut transfer_list: Vec<TransferHuman> = Vec::new();
+
+    let query = format!(
+        "SELECT {}.id, {}.created_at, to_c.name, {}.amount
+    FROM {}
+    JOIN {} as to_c ON {}.to_id = to_c.id WHERE {}.from_id = ?1;
+    ",
+        Table::TRANSFER.as_str(),
+        Table::TRANSFER.as_str(),
+        Table::TRANSFER.as_str(),
+        Table::TRANSFER.as_str(),
+        Table::CUSTOMER.as_str(),
+        Table::TRANSFER.as_str(),
+        Table::TRANSFER.as_str()
+    );
+
+    let mut stmt = conn.prepare(&query)?;
+
+    stmt.query_map(params![id], |row| {
+        Ok(TransferHuman {
+            id: row.get(0)?,
+            created_at: row.get(1)?,
+            name_to: row.get(2)?,
+            amount: row.get(3)?,
+            name_from: "".to_string(),
+        })
+    })?
+    .for_each(|i| transfer_list.push(i.unwrap()));
+
+    Ok(transfer_list)
+}
+
 pub fn update_balance(id: u16, balance: f64) -> Result<()> {
     let conn = get_connection().unwrap();
 
@@ -78,6 +119,36 @@ pub fn update_balance(id: u16, balance: f64) -> Result<()> {
     );
 
     conn.execute(&query, params![balance, id]).unwrap();
+    Ok(())
+}
+
+pub fn create_payment(payment: &models::Payment, balance: f64) -> Result<()> {
+    let conn = get_connection().unwrap();
+
+    let query = format!(
+        "INSERT INTO {} (created_at, customer_id, amount, receiver_code, reference, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        Table::PAYMENT.as_str()
+    );
+
+    conn.execute(
+        &query,
+        params![
+            payment.created_at,
+            payment.customer_id,
+            payment.amount,
+            payment.receiver_code,
+            payment.reference,
+            payment.note
+        ],
+    )?;
+
+    let query_2 = format!(
+        "UPDATE {} SET balance = ?1 WHERE id = ?2",
+        Table::CUSTOMER.as_str()
+    );
+
+    conn.execute(&query_2, params![balance, payment.customer_id])?;
+
     Ok(())
 }
 

@@ -5,7 +5,7 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use validator::Validate;
 
 static SECRET_KEY: &[u8; 6] = b"secret";
-static TOKEN_EXPIRATION_MINUTES: u8 = 1;
+static TOKEN_EXPIRATION_MINUTES: u16 = 1 * 60 * 24;
 
 pub async fn get_jwt() -> impl Responder {
     let key = SECRET_KEY;
@@ -36,7 +36,7 @@ pub async fn health_check() -> impl Responder {
 }
 
 fn validate_balance(amount: f64, customer: &models::Customer) -> bool {
-    amount < customer.balance.unwrap()
+    amount <= customer.balance.unwrap()
 }
 
 fn validate_transfer(
@@ -114,6 +114,24 @@ pub async fn get_customer(id: web::Path<u16>) -> impl Responder {
     }
 }
 
+pub async fn get_transfers_by_customer(id: web::Path<u16>) -> impl Responder {
+    let mut response = models::APIResponse {
+        message: "could not get customer".to_string(),
+    };
+
+    match crud::get_customer(*id) {
+        Ok(x) => match crud::get_transfers_by_customer(x.id.unwrap()) {
+            Ok(x) => HttpResponse::Ok().json(x),
+            Err(e) => {
+                println!("{}", e);
+                response.message = "could not get transfers".to_string();
+                HttpResponse::NotFound().json(response)
+            }
+        },
+        Err(_) => HttpResponse::NotFound().json(response),
+    }
+}
+
 pub fn validate_token(req: HttpRequest) -> Option<models::Claims> {
     let key = SECRET_KEY;
     let token = req.headers().get("authorization");
@@ -149,27 +167,27 @@ pub async fn withdraw(money: web::Json<models::Money>, id: web::Path<u16>) -> im
 
     let customer_found = crud::get_customer(*id);
 
-    if customer_found.is_err() {
-        response.message = "could not find customer".to_string();
-        return HttpResponse::NotFound().json(response);
+    match customer_found {
+        Err(_) => {
+            response.message = "could not find customer".to_string();
+            return HttpResponse::NotFound().json(response);
+        }
+        Ok(x) => {
+            if !validate_balance(money.amount, &x) {
+                response.message = "not enough balance".to_string();
+                return HttpResponse::BadRequest().json(response);
+            }
+            let balance = x.balance.unwrap() - money.amount;
+
+            match crud::update_balance(x.id.unwrap(), balance) {
+                Err(_) => return HttpResponse::BadRequest().json(response),
+                Ok(_) => {
+                    response.message = "withdrawal successfull".to_string();
+                    return HttpResponse::Ok().json(response);
+                }
+            }
+        }
     }
-
-    if !validate_balance(money.amount, &customer_found.as_ref().unwrap()) {
-        response.message = "not enough balance".to_string();
-        return HttpResponse::BadRequest().json(response);
-    }
-
-    let (id, balance) = (
-        customer_found.as_ref().unwrap().id.unwrap(),
-        customer_found.as_ref().unwrap().balance.unwrap() - money.amount,
-    );
-
-    if crud::update_balance(id, balance).is_ok() {
-        response.message = "withdrawal successfull".to_string();
-        return HttpResponse::Ok().json(response);
-    };
-
-    HttpResponse::BadRequest().json(response)
 }
 
 pub async fn deposit(money: web::Json<models::Money>, id: web::Path<u16>) -> impl Responder {
@@ -184,21 +202,20 @@ pub async fn deposit(money: web::Json<models::Money>, id: web::Path<u16>) -> imp
 
     let customer_found = crud::get_customer(*id);
 
-    if customer_found.is_err() {
-        response.message = "could not find customer".to_string();
-        return HttpResponse::NotFound().json(response);
+    match customer_found {
+        Err(_) => {
+            response.message = "could not find customer".to_string();
+            return HttpResponse::NotFound().json(response);
+        }
+        Ok(x) => {
+            let balance = x.balance.unwrap() + money.amount;
+
+            if crud::update_balance(x.id.unwrap(), balance).is_ok() {
+                response.message = "deposit successfull".to_string();
+                return HttpResponse::Ok().json(response);
+            };
+        }
     }
-
-    let (id, balance) = (
-        customer_found.as_ref().unwrap().id.unwrap(),
-        customer_found.as_ref().unwrap().balance.unwrap() + money.amount,
-    );
-
-    if crud::update_balance(id, balance).is_ok() {
-        response.message = "deposit successfull".to_string();
-        return HttpResponse::Ok().json(response);
-    };
-
     HttpResponse::BadRequest().json(response)
 }
 
@@ -279,5 +296,43 @@ pub async fn create_customer(mut customer: web::Json<models::Customer>) -> Resul
             return Ok(HttpResponse::Ok().json(response));
         }
         Err(_e) => Ok(HttpResponse::BadRequest().json(response)),
+    }
+}
+
+pub async fn create_payment(
+    payment: web::Json<models::Payment>,
+    id: web::Path<u16>,
+) -> impl Responder {
+    let mut response = models::APIResponse {
+        message: "payment not created".to_string(),
+    };
+    let mut created_payment = payment.into_inner();
+
+    if created_payment.validate().is_err() {
+        return HttpResponse::UnprocessableEntity().json(created_payment.validate().err());
+    }
+
+    match crud::get_customer(*id) {
+        Err(_) => {
+            response.message = "could not find customer".to_string();
+            return HttpResponse::NotFound().json(response);
+        }
+        Ok(x) => {
+            if !validate_balance(created_payment.amount, &x) {
+                response.message = "not enough balance".to_string();
+                return HttpResponse::BadRequest().json(response);
+            }
+            let balance = x.balance.unwrap() - created_payment.amount;
+            created_payment.created_at = Some(Utc::now().to_rfc2822());
+            created_payment.customer_id = x.id;
+
+            match crud::create_payment(&created_payment, balance) {
+                Ok(_) => {
+                    response.message = "payment successfull".to_string();
+                    return HttpResponse::Ok().json(response);
+                }
+                Err(_) => return HttpResponse::BadRequest().json(response),
+            }
+        }
     }
 }
