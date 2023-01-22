@@ -122,9 +122,25 @@ pub async fn get_transfers_by_customer(id: web::Path<u16>) -> impl Responder {
     match crud::get_customer(*id) {
         Ok(x) => match crud::get_transfers_by_customer(x.id.unwrap()) {
             Ok(x) => HttpResponse::Ok().json(x),
-            Err(e) => {
-                println!("{}", e);
+            Err(_) => {
                 response.message = "could not get transfers".to_string();
+                HttpResponse::NotFound().json(response)
+            }
+        },
+        Err(_) => HttpResponse::NotFound().json(response),
+    }
+}
+
+pub async fn get_payments_by_customer(id: web::Path<u16>) -> impl Responder {
+    let mut response = models::APIResponse {
+        message: "could not get customer".to_string(),
+    };
+
+    match crud::get_customer(*id) {
+        Ok(x) => match crud::get_payments_by_customer(x.id.unwrap()) {
+            Ok(x) => HttpResponse::Ok().json(x),
+            Err(_) => {
+                response.message = "could not get payments".to_string();
                 HttpResponse::NotFound().json(response)
             }
         },

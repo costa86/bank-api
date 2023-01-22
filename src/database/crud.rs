@@ -1,4 +1,4 @@
-use super::models::{Customer, TransferHuman};
+use super::models::{Customer, Payment, TransferHuman};
 use crate::database::models;
 use chrono::Utc;
 use rusqlite::{params, Connection, Result};
@@ -108,6 +108,34 @@ pub fn get_transfers_by_customer(id: u16) -> Result<Vec<TransferHuman>> {
     .for_each(|i| transfer_list.push(i.unwrap()));
 
     Ok(transfer_list)
+}
+
+pub fn get_payments_by_customer(id: u16) -> Result<Vec<Payment>> {
+    let conn = get_connection().unwrap();
+    let mut record_list: Vec<Payment> = Vec::new();
+
+    let query = format!(
+        "SELECT * FROM {} WHERE {}.customer_id = ?1;",
+        Table::PAYMENT.as_str(),
+        Table::PAYMENT.as_str(),
+    );
+
+    let mut stmt = conn.prepare(&query)?;
+
+    stmt.query_map(params![id], |row| {
+        Ok(Payment {
+            id: row.get(0)?,
+            created_at: row.get(1)?,
+            customer_id: row.get(2)?,
+            amount: row.get(3)?,
+            receiver_code: row.get(4)?,
+            reference: row.get(5)?,
+            note: row.get(6)?,
+        })
+    })?
+    .for_each(|i| record_list.push(i.unwrap()));
+
+    Ok(record_list)
 }
 
 pub fn update_balance(id: u16, balance: f64) -> Result<()> {
