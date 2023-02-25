@@ -263,10 +263,10 @@ pub async fn edit_customer(
     HttpResponse::BadRequest().json(response)
 }
 
-pub async fn get_all_customers(req: HttpRequest) -> impl Responder {
-    if validate_token(req).is_none() {
-        return HttpResponse::BadRequest().json("Missing or invalid Token");
-    }
+pub async fn get_all_customers(_req: HttpRequest) -> impl Responder {
+    // if validate_token(req).is_none() {
+    //     return HttpResponse::BadRequest().json("Missing or invalid Token");
+    // }
 
     let customer_list = crud::get_all_customers();
 
